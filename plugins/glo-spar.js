@@ -1,14 +1,19 @@
 // ============================================================
 // GRAND LINE ONLINE — spar logging & tier-up
 // Put this file at: plugins/glo-spar.js
+//
+// IMPORTANT: set your GM/mod WhatsApp numbers below (with country
+// code, no + or spaces, e.g. "2348012345678"). Only these numbers
+// can log spars or approve Tier-ups — this is a self-contained
+// permission check, it doesn't rely on group admin status.
 // ============================================================
 
 const { bot } = require('../lib/')
 const glo = require('../lib/glo-data')
 
 const GM_NUMBERS = [
-  '2349015512002',
-  '2349137017829',
+  // '2348012345678',
+  // '2349098765432',
 ]
 
 function isGM(message) {
@@ -17,6 +22,7 @@ function isGM(message) {
 }
 
 function getTargetJid(message, match) {
+  // Prefer a tagged/quoted user; fall back to a raw number typed after the command
   if (message.mention && message.mention.length) return message.mention[0]
   if (message.quoted && message.quoted.sender) return message.quoted.sender
   const digits = (match[1] || '').replace(/[^0-9]/g, '')
@@ -24,6 +30,8 @@ function getTargetJid(message, match) {
   return null
 }
 
+// ---------- LOG A SPAR ----------
+// .glo spar @player1 @player2   (tag both, GM-only, run in the group)
 bot(
   {
     pattern: 'glo spar ?(.*)',
@@ -39,7 +47,7 @@ bot(
 
     const results = []
     for (const jid of mentions.slice(0, 2)) {
-      const c = glo.getPlayer(jid)
+      const c = await glo.getPlayer(jid)
       if (!c) {
         results.push(`⚠ ${jid.split('@')[0]} has no character registered — skipped.`)
         continue
@@ -51,7 +59,7 @@ bot(
       if (xpGain === null) {
         results.push(`${c.name}: already Tier 6 (max) — no XP gained, but +${tpGain} TP.`)
         c.tpBanked += tpGain
-        glo.savePlayer(jid, c)
+        await glo.savePlayer(jid, c)
         continue
       }
 
@@ -59,6 +67,8 @@ bot(
       c.tpBanked += tpGain
       let tierUpNote = ''
 
+      // Auto tier-up for T1-T4 → next (pure XP gate).
+      // T5 and T6 require GM/Faction sign-off (Trial), so we flag it instead of auto-promoting.
       if (c.tier < 4 && c.xp >= tier.xpToNext) {
         c.xp -= tier.xpToNext
         c.tier += 1
@@ -69,7 +79,7 @@ bot(
         tierUpNote = `\n⚠ *${c.name} has hit the XP threshold for Tier ${c.tier + 1}* but promotion needs a Trial (defeat a higher-Tier opponent in an official battle, OR faction sign-off). Use .glo promote to confirm once earned.`
       }
 
-      glo.savePlayer(jid, c)
+      await glo.savePlayer(jid, c)
       results.push(`${c.name}: +${xpGain} XP, +${tpGain} TP${tierUpNote}`)
     }
 
@@ -77,6 +87,8 @@ bot(
   }
 )
 
+// ---------- PROMOTE (Tier 5/6 gate) ----------
+// .glo promote @player   (GM-only — confirms the Trial was met)
 bot(
   {
     pattern: 'glo promote ?(.*)',
@@ -87,7 +99,7 @@ bot(
     if (!isGM(message)) return await message.send('⚠ GM/mod only.')
     const jid = getTargetJid(message, match)
     if (!jid) return await message.send('Tag the player. Usage: .glo promote @player')
-    const c = glo.getPlayer(jid)
+    const c = await glo.getPlayer(jid)
     if (!c) return await message.send('⚠ That player has no character registered.')
     if (c.tier !== 4 && c.tier !== 5) {
       return await message.send(`⚠ ${c.name} is Tier ${c.tier} — this command is only for the Tier 5/6 Trial gate.`)
@@ -100,11 +112,12 @@ bot(
     c.tier += 1
     c.hp.max = glo.TIERS[c.tier].hp
     c.hp.current = c.hp.max
-    glo.savePlayer(jid, c)
+    await glo.savePlayer(jid, c)
     return await message.send(`🎉 ${c.name} promoted to Tier ${c.tier}!`)
   }
 )
 
+// ---------- GM: GRANT TP / XP MANUALLY (events, story rewards, corrections) ----------
 bot(
   {
     pattern: 'glo grant (xp|tp) ?(.*)',
@@ -120,12 +133,12 @@ bot(
     const amount = amountMatch ? parseInt(amountMatch[1], 10) : 0
     if (!amount) return await message.send(`Usage: .glo grant ${kind} @player 50`)
 
-    const c = glo.getPlayer(jid)
+    const c = await glo.getPlayer(jid)
     if (!c) return await message.send('⚠ That player has no character registered.')
 
     if (kind === 'xp') c.xp += amount
     else c.tpBanked += amount
-    glo.savePlayer(jid, c)
+    await glo.savePlayer(jid, c)
 
     return await message.send(`✅ Granted ${amount} ${kind.toUpperCase()} to ${c.name}.`)
   }
