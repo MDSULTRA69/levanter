@@ -1,6 +1,9 @@
 // ============================================================
 // GRAND LINE ONLINE — registration & profile card
 // Put this file at: plugins/glo-profile.js
+// Commands (DM the bot):
+//   .glo register <name> | <race> | <fighting style>
+//   .card                (or .profile / .glo card)
 // ============================================================
 
 const { bot } = require('../lib/')
@@ -14,7 +17,7 @@ bot(
   },
   async (message, match) => {
     const jid = message.sender
-    if (glo.getPlayer(jid)) {
+    if (await glo.getPlayer(jid)) {
       return await message.send(
         '⚠ You already have a character registered. DM a mod if you need it reset.'
       )
@@ -34,7 +37,7 @@ bot(
     }
 
     const character = glo.newCharacter({ name, race, style })
-    glo.savePlayer(jid, character)
+    await glo.savePlayer(jid, character)
 
     return await message.send(
       `✅ Character created!\n\n` +
@@ -54,7 +57,7 @@ bot(
   },
   async (message) => {
     const jid = message.sender
-    const c = glo.getPlayer(jid)
+    const c = await glo.getPlayer(jid)
     if (!c) {
       return await message.send('You have no character yet. Use:\n.glo register Name | Race | Style')
     }
