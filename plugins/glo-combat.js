@@ -1,14 +1,22 @@
 // ============================================================
 // GRAND LINE ONLINE — combat math helper (Phase 1)
 // Put this file at: plugins/glo-combat.js
+//
+// This does the ARITHMETIC for a GM moderating a live match —
+// it does not yet track turn order, cooldowns, or Traps automatically.
+// That's Phase 2.
+//
+// Commands (GM runs these in the fight thread):
+//   .glo dmg @attacker @defender          → damage/dodge result for one exchange
+//   .glo hp @player -25                   → apply damage/healing directly to HP
+//   .glo resethp @player                  → reset HP to max (after rest/recovery)
 // ============================================================
 
 const { bot } = require('../lib/')
 const glo = require('../lib/glo-data')
 
 const GM_NUMBERS = [
-  '2349015512002',
-  '2349137017829',
+  // '2349073353353','2349137017829'
 ]
 
 function isGM(message) {
@@ -23,6 +31,8 @@ function observationBoost(c) {
   return glo.OBSERVATION_RANKS.find((r) => r.rank === c.haki.observation).boost
 }
 
+// ---------- ONE EXCHANGE: attacker vs defender ----------
+// .glo dmg @attacker @defender
 bot(
   {
     pattern: 'glo dmg ?(.*)',
@@ -36,15 +46,17 @@ bot(
       return await message.send('Tag attacker then defender. Usage: .glo dmg @attacker @defender')
     }
     const [atkJid, defJid] = mentions
-    const atk = glo.getPlayer(atkJid)
-    const def = glo.getPlayer(defJid)
+    const atk = await glo.getPlayer(atkJid)
+    const def = await glo.getPlayer(defJid)
     if (!atk || !def) return await message.send('⚠ Both players need registered characters.')
 
+    // effective stats including Haki
     const atkSTR = Math.round(glo.effectiveStat(atk, 'str') * (1 + armamentBoost(atk)))
     const defDEF = Math.round(glo.effectiveStat(def, 'def') * (1 + armamentBoost(def)))
     const atkSPD = Math.round(glo.effectiveStat(atk, 'spd') * (1 + observationBoost(atk)))
     const defSPD = Math.round(glo.effectiveStat(def, 'spd') * (1 + observationBoost(def)))
 
+    // --- Dodge check first (Speed Gap) ---
     const speedGap = atkSPD - defSPD
     let dodgeResult, dodgeMult
     if (speedGap <= 5) {
@@ -58,6 +70,7 @@ bot(
       dodgeMult = 1
     }
 
+    // --- Damage (STR vs DEF) ---
     let rawDamage
     if (defDEF >= atkSTR) {
       rawDamage = 0
@@ -79,6 +92,8 @@ bot(
   }
 )
 
+// ---------- APPLY HP CHANGE ----------
+// .glo hp @player -25   or   .glo hp @player +40
 bot(
   {
     pattern: 'glo hp ?(.*)',
@@ -90,7 +105,7 @@ bot(
     const mentions = message.mention || []
     if (!mentions.length) return await message.send('Tag the player. Usage: .glo hp @player -25')
     const jid = mentions[0]
-    const c = glo.getPlayer(jid)
+    const c = await glo.getPlayer(jid)
     if (!c) return await message.send('⚠ That player has no character registered.')
 
     const deltaMatch = (match[1] || '').match(/([+-]?\d+)/)
@@ -98,13 +113,14 @@ bot(
     const delta = parseInt(deltaMatch[1], 10)
 
     c.hp.current = Math.max(0, Math.min(c.hp.max, c.hp.current + delta))
-    glo.savePlayer(jid, c)
+    await glo.savePlayer(jid, c)
 
     const status = c.hp.current === 0 ? '\n💀 *0 HP — down.*' : ''
     return await message.send(`❤ ${c.name}: ${c.hp.current} / ${c.hp.max} HP${status}`)
   }
 )
 
+// ---------- RESET HP (after daily rest / recovery items) ----------
 bot(
   {
     pattern: 'glo resethp ?(.*)',
@@ -116,10 +132,11 @@ bot(
     const mentions = message.mention || []
     if (!mentions.length) return await message.send('Tag the player. Usage: .glo resethp @player')
     const jid = mentions[0]
-    const c = glo.getPlayer(jid)
+    const c = await glo.getPlayer(jid)
     if (!c) return await message.send('⚠ That player has no character registered.')
     c.hp.current = c.hp.max
-    glo.savePlayer(jid, c)
+    await glo.savePlayer(jid, c)
     return await message.send(`❤ ${c.name} restored to full HP (${c.hp.max}).`)
   }
 )
+                              
